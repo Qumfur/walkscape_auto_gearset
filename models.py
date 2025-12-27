@@ -1,6 +1,17 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
+def deduce_max_efficiency(base_steps: int, min_steps: int) -> float:
+    """
+    Returns the effective max efficiency required to hit the min_steps.
+    Matches logic in image_3a5dc4.png.
+    """
+    if min_steps <= 0: return 0.0
+    
+    return (base_steps / min_steps) - 1.0
+
+
+
 class Item(BaseModel):
     name: str
     slot: str
@@ -71,4 +82,43 @@ class Item(BaseModel):
             clean_item_name=_val('Clean Item Name'),
             uuid=_val('UUID'),
             export_name=_val('Export Name')
+        )
+    
+
+class Activity(BaseModel):
+    activity: str
+    locations: List[str] = Field(default_factory=list)
+    region: Optional[str] = None
+    required_keywords: List[str] = Field(default_factory=list)
+    is_underwater: bool = False
+    skill: Optional[str] = None
+    skill_level: Optional[int] = None
+    base_xp: Optional[float] = None
+    base_gem_drop_rate: Optional[float] = None
+    max_work_efficiency: Optional[float] = None
+    base_steps: Optional[int] = None
+    min_steps: Optional[int] = None
+
+    @classmethod
+    def from_csv_row(cls, row: dict):
+        def _val(key, type_func=str):
+            v = row.get(key, '').strip()
+            if not v or v == '-': return None
+            if type_func == bool: return v.upper() == 'TRUE'
+            if type_func == list: return [s.strip() for s in v.split(',')]
+            return type_func(v.replace('%', ''))
+
+        return cls(
+            activity=row['Activity'],
+            locations=_val('Location(s)', list) or [],
+            region=_val('Region'),
+            required_keywords=_val('Required Keywords', list) or [],
+            is_underwater=_val('Is Underwater', bool) or False,
+            skill=_val('Skill1'),
+            skill_level=_val('S1 Min', int),
+            base_xp=_val('Base XP (S1)', float),
+            base_gem_drop_rate=_val('Base Gem Drop Rate', float),
+            base_steps=_val('Base Steps', int),
+            min_steps=_val('"Min" Steps', int),
+            max_work_efficiency=deduce_max_efficiency(base_steps=_val('Base Steps', int), min_steps=_val('"Min" Steps', int)),
         )

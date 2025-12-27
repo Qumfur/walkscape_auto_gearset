@@ -1,16 +1,21 @@
-from utils import parse_csv_to_items
-from models import Item
+from utils import parse_csv_to_items, parse_csv_to_activities
+from models import Item, Activity
+from math import ceil, floor
 
 
 
-file_name = "items.csv"
 
-items = parse_csv_to_items(file_name)
-for item in items:
-    print(item.name, item.rarity_sort)
 
-for key in Item.model_fields.keys():
-    if all(getattr(item, key) is None for item in items):
-        print(key)
+items_file_name = "items.csv"
+activity_file_name = "activities.csv"
 
-print(len(items))
+
+items = parse_csv_to_items(items_file_name)
+print(len(items), "items loaded")
+
+activities = parse_csv_to_activities(activity_file_name)
+for a in activities:
+    max_eff = round((a.base_steps / a.min_steps - 1) * 100)
+    print(a.activity, max_eff, "%")
+    
+print(len(activities), "activities loaded")
