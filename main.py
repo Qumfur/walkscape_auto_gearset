@@ -27,11 +27,11 @@ activities = parse_csv_to_activities(activities_file_path=activity_file_name, re
 print(f"{len(activities)} activities loaded")
 
 #### EDIT THESE ###
-target_name = "Create a Gold Ethernite Ring"
+activity_name = "Create a Gold Ethernite Ring"
 optimize_target = OPTIMAZATION_TARGET.materials
 #######
 
-activity = next((a for a in activities if a.activity == target_name), None)
+activity = next((a for a in activities if a.activity == activity_name), None)
 
 if activity:
     print(f"Found {activity.activity} (Base Steps: {activity.base_steps}, Is Underwater: {activity.is_underwater})")
@@ -39,7 +39,7 @@ if activity:
     optimizer = GearOptimizer(items)
     best_gear = optimizer.optimize(activity, player_level=99, player_skill_level=99, optimazation_target=optimize_target)
 
-    print(f"\n--- Optimization Result for {target_name} ---")
+    print(f"\n--- Optimization Result for {activity_name} ---")
     single_slots = ["head", "chest", "legs", "feet", "cape", "back", "neck", "hands", "primary", "secondary", "pet", "consumable"]
     for s in single_slots:
         val = getattr(best_gear, s)
