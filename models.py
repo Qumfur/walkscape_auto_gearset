@@ -70,7 +70,7 @@ class Item(BaseModel):
 
             double_rewards=_val('Dbl Rewards', is_percent=True, type_func=float),
             double_action=_val('Dbl Action', is_percent=True, type_func=float),
-            quality_outcome=_val('Craft Outcome', is_percent=True, type_func=float),
+            quality_outcome=_val('Craft Outcome', is_percent=True, type_func=int),
             
             minus_steps=_val('Minus Steps', type_func=int),
             minus_steps_percent=_val('Minus Steps %',type_func=float),
@@ -105,8 +105,9 @@ class Activity(BaseModel):
     base_steps: Optional[int] = None
     min_steps: Optional[int] = None
 
+
     @classmethod
-    def from_csv_row(cls, row: dict):
+    def from_activity_csv_row(cls, row: dict):
         def _val(key, type_func=str):
             v = row.get(key, '').strip()
             if not v or v == '-': return None
@@ -128,6 +129,32 @@ class Activity(BaseModel):
             min_steps=_val('"Min" Steps', int),
             max_work_efficiency=deduce_max_efficiency(base_steps=_val('Base Steps', int) or 0, min_steps=_val('"Min" Steps', int) or 0),
         )
+    @classmethod
+    def from_recipe_csv_row(cls, row: dict):
+        def _val(key, type_func=str):
+            v = row.get(key, '').strip()
+            if not v or v == '-': return None
+            if type_func == bool: return v.upper() == 'TRUE'
+            if type_func == list: return [s.strip() for s in v.split(',')]
+            return type_func(v.replace('%', ''))
+        return cls(
+            activity=row['Recipe'],
+            locations=_val('Location(s)', list) or [],
+            region=None,             
+            required_keywords=[],    
+            is_underwater=False, 
+            skill=_val('Skill'),
+            skill_level=_val('Min Level', int),
+            base_xp=_val('Base XP', float),
+            base_gem_drop_rate=None, 
+            base_steps=_val('Base Steps', int),
+            min_steps=_val('"Min" Steps', int),
+            max_work_efficiency=deduce_max_efficiency(
+                base_steps=_val('Base Steps', int) or 0, 
+                min_steps=_val('"Min" Steps', int) or 0
+            ),
+        )
+        
 
 class GearSet(BaseModel):
     head: Optional[Item] = None
@@ -155,7 +182,8 @@ class GearSet(BaseModel):
             "work_efficiency": 0.0, "xp_percent": 0.0, "flat_xp": 0.0,
             "chest_finding": 0.0, "double_action": 0.0, "double_rewards": 0.0,
             "no_mats": 0.0, "fine_material": 0.0,
-            "flat_step_reduction": 0, "percent_step_reduction": 0.0
+            "flat_step_reduction": 0, "percent_step_reduction": 0.0,
+            "quality_outcome": 0.0
         }
         for item in self.all_items:
             item_skills = item.skill.split(',') if item.skill else []
@@ -171,6 +199,7 @@ class GearSet(BaseModel):
             if item.fine_mat_percent: stats["fine_material"] += item.fine_mat_percent
             if item.minus_steps: stats["flat_step_reduction"] += item.minus_steps
             if item.minus_steps_percent: stats["percent_step_reduction"] += item.minus_steps_percent
+            if item.quality_outcome: stats["quality_outcome"] += item.quality_outcome
         
         stats["double_action"] = min(1.0, stats["double_action"])
         stats["double_rewards"] = min(1.0, stats["double_rewards"])

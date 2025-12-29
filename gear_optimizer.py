@@ -1,15 +1,18 @@
 import itertools
 from typing import Dict, List
 from models import Item, Activity, GearSet
-from utils import calculate_steps
+from utils import calculate_steps, calculate_quality_probabilities
+from enum import Enum
+
 
 RESTRICTED_TOOL_KEYWORDS = {"pickaxe", "hatchet", "fishingTool", "lure"}
+OPTIMAZATION_TARGET = Enum("OPTIMAZATION_TARGET", ["reward_rolls", "xp", "chests", "materials", "fine", "quality"])
 
 class GearOptimizer:
     def __init__(self, all_items: List[Item]):
         self.all_items = all_items
 
-    def optimize(self, activity: Activity, player_level: int, goal: str):
+    def optimize(self, activity: Activity, player_level: int, player_skill_level: int, optimazation_target: OPTIMAZATION_TARGET = OPTIMAZATION_TARGET.reward_rolls):
         if player_level >= 80: tool_slots = 6
         elif player_level >= 50: tool_slots = 5
         elif player_level >= 20: tool_slots = 4
@@ -22,7 +25,7 @@ class GearOptimizer:
             stats = current_set.get_stats(activity.skill)
             steps = calculate_steps(
                 activity=activity,
-                player_skill_level=player_level, 
+                player_skill_level=player_skill_level, 
                 player_work_efficiency=stats["work_efficiency"],
                 player_minus_steps=stats["flat_step_reduction"],
                 player_minus_steps_percent=stats["percent_step_reduction"]
@@ -31,17 +34,32 @@ class GearOptimizer:
             dr_mult = 1.0 + stats["double_rewards"]
             nmc_mult = 1.0 / (1.0 - min(0.99, stats["no_mats"]))
             
-            if goal == "reward_rolls": return (da_mult * dr_mult) / steps
-            elif goal == "xp":
+            
+            if optimazation_target == OPTIMAZATION_TARGET.reward_rolls:
+                return (da_mult * dr_mult) / steps
+            elif optimazation_target == OPTIMAZATION_TARGET.xp:
                 base_xp = activity.base_xp or 0
                 xp_mult = 1.0 + stats["xp_percent"]
                 flat_xp = stats["flat_xp"]
                 return ((base_xp * xp_mult + flat_xp) * da_mult) / steps
-            elif goal == "chests":
+            elif optimazation_target == OPTIMAZATION_TARGET.chests:
                 return ((1.0 + stats["chest_finding"]) * da_mult * dr_mult) / steps
-            elif goal == "materials":
+            elif optimazation_target == OPTIMAZATION_TARGET.materials:
                 return  (dr_mult * nmc_mult)
-            return 0.0
+            elif optimazation_target == OPTIMAZATION_TARGET.fine:
+                return ((1.0 + stats["fine_material"]) * da_mult * dr_mult) / steps
+            elif optimazation_target == OPTIMAZATION_TARGET.quality:
+                flat_quality_bonus = stats["quality_outcome"]
+                
+                probs = calculate_quality_probabilities(
+                    activity_min_level=activity.skill_level or 0,
+                    player_skill_level=player_skill_level,
+                    quality_bonus=flat_quality_bonus
+                )
+                
+                return probs.get("Eternal", 0.0) * dr_mult * nmc_mult
+            else:
+                return 0.0
 
         candidates = self._keep_best_versions(candidates, activity, calculate_score_for_set)
 
@@ -104,6 +122,8 @@ class GearOptimizer:
                             max_t_score = score
                             best_tools = list(subset)
             best_set.tools = best_tools
+            self._is_valid_tool_set(best_tools)
+        
 
         return best_set
 

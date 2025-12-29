@@ -1,23 +1,26 @@
 from utils import parse_csv_to_items, parse_csv_to_activities, calculate_steps
-from gear_optimizer import GearOptimizer
+from gear_optimizer import GearOptimizer, OPTIMAZATION_TARGET
 from export import export_gearset
 
 items_file_name = "items.csv"
 activity_file_name = "activities.csv"
+recipes_file_name = "recipes.csv"
+
 
 items = parse_csv_to_items(items_file_name)
 print(f"{len(items)} items loaded")
-activities = parse_csv_to_activities(activity_file_name)
+activities = parse_csv_to_activities(activities_file_path=activity_file_name, recipes_file_path=recipes_file_name)
 print(f"{len(activities)} activities loaded")
 
-target_name = "Guard Duty"
+target_name = "Ectoplasm Fishing"
+target_name = "Create a Gold Ethernite Ring"
 activity = next((a for a in activities if a.activity == target_name), None)
 
 if activity:
     print(f"Found {activity.activity} (Base Steps: {activity.base_steps}, Is Underwater: {activity.is_underwater})")
     
     optimizer = GearOptimizer(items)
-    best_gear = optimizer.optimize(activity, player_level=99, goal="xp")
+    best_gear = optimizer.optimize(activity, player_level=99, player_skill_level=99, optimazation_target=OPTIMAZATION_TARGET.materials)
 
     print(f"\n--- Optimization Result for {target_name} ---")
     single_slots = ["head", "chest", "legs", "feet", "cape", "back", "neck", "hands", "primary", "secondary", "pet", "consumable"]
@@ -46,7 +49,8 @@ if activity:
     print(f"Work Eff: {stats['work_efficiency']*100:.1f}%")
     print(f"XP Bonus: {stats['xp_percent']*100:.1f}%")
     print(f"Dbl Act:  {stats['double_action']*100:.1f}%")
-
+    print(stats)
+    
     print("\n--- Export Code ---")
     export_string = export_gearset(best_gear)
     print(export_string)
