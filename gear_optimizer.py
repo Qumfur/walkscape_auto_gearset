@@ -5,7 +5,7 @@ from utils import calculate_steps, calculate_quality_probabilities
 from enum import Enum
 
 
-RESTRICTED_TOOL_KEYWORDS = {"pickaxe", "hatchet", "fishingTool", "lure"}
+RESTRICTED_TOOL_KEYWORDS = {"pickaxe", "hatchet", "fishingTool", "lure","hammer"} # need to add more
 OPTIMAZATION_TARGET = Enum("OPTIMAZATION_TARGET", ["reward_rolls", "xp", "chests", "materials", "fine", "quality"])
 
 class GearOptimizer:
