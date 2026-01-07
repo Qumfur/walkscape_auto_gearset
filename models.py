@@ -35,6 +35,10 @@ class Item(BaseModel):
     rarity_sort: Optional[int] = None
     uuid: Optional[str] = None
     export_name: Optional[str] = None
+    set_name: Optional[str] = None
+    set_count: Optional[int] = None
+    has_set_attr: Optional[bool] = False
+    is_part_of_set: Optional[bool] = False
 
     @classmethod
     def from_csv_row(cls, row: dict):
@@ -57,6 +61,24 @@ class Item(BaseModel):
         skill_val = _val('Skill')
         if skill_val and skill_val.lower() == 'global':
             skill_val = None
+            
+        # Check for sets
+        set_str = None
+        set_count_int = 0
+        is_part_of_set_bool = False
+        has_set_attr_bool = False
+        if "Set)" in row['Item']:
+            set_str = row['Item'].split(None)[0] #Get the first word of the item
+            set_count_int = row['Item'].split(" Set)")[0][-1] #Get number before set
+            has_set_attr_bool = True
+            if not set_str == "Adventuring":
+                is_part_of_set_bool = True
+        if "Adventuring" in row['Item'] and row['Slot'] == "Tool": #Custom solution for Adventuring Set, hopefully better solution later
+            set_str = "Adventuring"
+            set_count_int = 0
+            has_set_attr_bool = False
+            is_part_of_set_bool = True
+        
         return cls(
             name=row['Item'],
             slot=row['Slot'],
@@ -88,7 +110,12 @@ class Item(BaseModel):
             rarity_sort=_val('Rarity Sort', type_func=int),
             clean_item_name=_val('Clean Item Name'),
             uuid=_val('UUID'),
-            export_name=_val('Export Name')
+            export_name=_val('Export Name'),
+            
+            set_name=set_str,
+            set_count=int(set_count_int),
+            has_set_attr = has_set_attr_bool,
+            is_part_of_set = is_part_of_set_bool
         )
 
 class Activity(BaseModel):
@@ -181,7 +208,7 @@ class GearSet(BaseModel):
         stats = {
             "work_efficiency": 0.0, "xp_percent": 0.0, "flat_xp": 0.0,
             "chest_finding": 0.0, "double_action": 0.0, "double_rewards": 0.0,
-            "no_mats": 0.0, "fine_material": 0.0,
+            "no_mats": 0.0, "fine_material": 0.0, "collectible_percent": 0.0,
             "flat_step_reduction": 0, "percent_step_reduction": 0.0,
             "quality_outcome": 0.0
         }
@@ -192,14 +219,15 @@ class GearSet(BaseModel):
                 if item.xp_percent: stats["xp_percent"] += item.xp_percent
                 if item.plus_xp: stats["flat_xp"] += item.plus_xp
             
-            if item.chest_percent: stats["chest_finding"] += item.chest_percent
-            if item.double_action: stats["double_action"] += item.double_action
-            if item.double_rewards: stats["double_rewards"] += item.double_rewards
-            if item.no_mats_consumed_percent: stats["no_mats"] += item.no_mats_consumed_percent
-            if item.fine_mat_percent: stats["fine_material"] += item.fine_mat_percent
-            if item.minus_steps: stats["flat_step_reduction"] += item.minus_steps
-            if item.minus_steps_percent: stats["percent_step_reduction"] += item.minus_steps_percent
-            if item.quality_outcome: stats["quality_outcome"] += item.quality_outcome
+                if item.chest_percent: stats["chest_finding"] += item.chest_percent
+                if item.double_action: stats["double_action"] += item.double_action
+                if item.double_rewards: stats["double_rewards"] += item.double_rewards
+                if item.no_mats_consumed_percent: stats["no_mats"] += item.no_mats_consumed_percent
+                if item.fine_mat_percent: stats["fine_material"] += item.fine_mat_percent
+                if item.collectible_percent: stats["collectible_percent"] += item.collectible_percent
+                if item.minus_steps: stats["flat_step_reduction"] += item.minus_steps
+                if item.minus_steps_percent: stats["percent_step_reduction"] += item.minus_steps_percent
+                if item.quality_outcome: stats["quality_outcome"] += item.quality_outcome
         
         stats["double_action"] = min(1.0, stats["double_action"])
         stats["double_rewards"] = min(1.0, stats["double_rewards"])

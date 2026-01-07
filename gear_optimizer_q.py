@@ -1,4 +1,5 @@
 import itertools
+import copy
 from typing import Dict, List
 from models import Item, Activity, GearSet
 from utils import calculate_steps, calculate_quality_probabilities
@@ -6,7 +7,7 @@ from enum import Enum
 
 
 RESTRICTED_TOOL_KEYWORDS = {"pickaxe", "hatchet", "fishingTool", "lure","hammer", "splitter"} # need to add more
-OPTIMAZATION_TARGET = Enum("OPTIMAZATION_TARGET", ["reward_rolls", "xp", "chests", "materials", "fine", "quality"])
+OPTIMAZATION_TARGET = Enum("OPTIMAZATION_TARGET", ["reward_rolls", "xp", "chests", "materials", "fine", "collectibles", "quality"])
 
 class GearOptimizer:
     def __init__(self, all_items: List[Item]):
@@ -48,6 +49,8 @@ class GearOptimizer:
                 return  (dr_mult * nmc_mult)
             elif optimazation_target == OPTIMAZATION_TARGET.fine:
                 return ((1.0 + stats["fine_material"]) * da_mult * dr_mult) / steps
+            elif optimazation_target == OPTIMAZATION_TARGET.collectibles:
+                return ((1.0 + stats["collectible_percent"]) * da_mult * dr_mult) / steps
             elif optimazation_target == OPTIMAZATION_TARGET.quality:
                 flat_quality_bonus = stats["quality_outcome"]
                 
@@ -68,6 +71,12 @@ class GearOptimizer:
 
 
         single_slots = ["head", "chest", "legs", "feet", "cape", "back", "neck", "hands", "primary", "secondary", "pet", "consumable"]
+        locked_slots = set()
+        locked_tools = []
+        locked_rings = []
+        
+        #sets
+        set_names = self.get_all_sets()
         
         changed = True
         changed_iter = 0
@@ -80,6 +89,8 @@ class GearOptimizer:
             pre_iter_score = base_score
             
             for slot_attr in single_slots:
+                if slot_attr in locked_slots:
+                    continue
                 best_item = getattr(best_set, slot_attr)
                 max_slot_score = base_score 
                 slot_key = slot_attr.capitalize()
@@ -87,6 +98,8 @@ class GearOptimizer:
                 
                 for item in candidates.get(slot_key, []):
                     setattr(best_set, slot_attr, item)
+                    if item.set_name != None and not self._check_for_set_conditions(item, best_set):
+                        continue
                     score = calculate_score_for_set(best_set)
                     
                     if score > max_slot_score:
@@ -101,12 +114,14 @@ class GearOptimizer:
             if ring_items:
                 best_rings = best_set.rings
                 max_r_score = base_score
-                for r1, r2 in itertools.combinations_with_replacement(ring_items, 2):
-                    best_set.rings = [r1, r2]
+                open_slots = 2 - len(locked_rings)
+                if open_slots == 0: best_rings = locked_rings
+                for subset_rings in itertools.combinations_with_replacement(ring_items, open_slots):
+                    best_set.rings = list(subset_rings) + locked_rings
                     score = calculate_score_for_set(best_set)
                     if score > max_r_score:
                         max_r_score = score
-                        best_rings = [r1, r2]
+                        best_rings = list(subset_rings) + locked_rings
                 best_set.rings = best_rings
                 base_score = max_r_score
 
@@ -123,10 +138,11 @@ class GearOptimizer:
                 top_tools = [x[1] for x in scored_tools[:30]]
 
                 best_set.tools = []
-                for r in range(1, tool_slots + 1):
+                for r in range(1, tool_slots - len(locked_tools) + 1):
                     for subset in itertools.combinations(top_tools, r):
-                        if self._is_valid_tool_set(subset):
-                            best_set.tools = list(subset)
+                        used_tools = list(subset) + locked_tools
+                        if self._is_valid_tool_set(used_tools):
+                            best_set.tools = list(used_tools)
                             score = calculate_score_for_set(best_set)
                             if score > max_t_score:
                                 max_t_score = score
@@ -134,6 +150,152 @@ class GearOptimizer:
                 best_set.tools = best_tools
                 self._is_valid_tool_set(best_tools)
             
+            #Set consideration
+            saved_set = copy.deepcopy(best_set)
+            max_score = calculate_score_for_set(best_set)
+            set_with_most_improvement = []
+            improved = False
+            for ind_set in set_names:
+                items_in_set = list()
+                for slot,items in candidates.items():
+                    for item in items:
+                        if item.set_name == ind_set:
+                            items_in_set.append(item)
+                
+                #Take out items that are part of the set but without set attr
+                items_without_set_attr = []
+                for item in items_in_set[:]:
+                    if not item.has_set_attr:
+                        items_in_set.remove(item)
+                        items_without_set_attr.append(item)
+                items_without_set_attr_without_adv = []
+                temp_set = GearSet()
+                zero_score = calculate_score_for_set(temp_set)
+                for item in items_without_set_attr[:]:
+                    temp_set = GearSet()
+                    slot_attr = item.slot
+                    if slot_attr == "Ring":
+                        temp_set.rings = [item]
+                    elif slot_attr == "Tool":
+                        temp_set.tools = [item]
+                    else:
+                        setattr(temp_set, slot_attr.lower(), item)
+                    temp_score = calculate_score_for_set(temp_set)
+                    if abs(temp_score - zero_score) > 0.000001: continue
+                    items_without_set_attr_without_adv.append(item)
+                    items_without_set_attr.remove(item)
+                #Seperate all items into set_counts
+                grouped = {}
+                for item in items_in_set:
+                    key = item.set_count
+                    if key not in grouped:
+                        grouped[key] = []
+                    grouped[key].append(item)
+                
+                #For each set count try out all possibilities and check if they have a better score
+                for count,items in grouped.items():
+                    items_not_part_of_set= []
+                    for item in items[:]:
+                        if not item.is_part_of_set:
+                            items.remove(item)
+                            items_not_part_of_set.append(item)
+                    #Check for all combinnations of items in set
+                    for subset in itertools.combinations(items, count):
+                        current_set = copy.deepcopy(saved_set)
+                        for item in subset:
+                            slot_attr = item.slot
+                            if slot_attr.lower() in locked_slots:
+                                break
+                            if slot_attr != "Ring" and slot_attr != "Tool":
+                                setattr(current_set, slot_attr.lower(), item)
+                        score = calculate_score_for_set(current_set)
+                        if score > max_score:
+                            max_score = score
+                            best_set = copy.deepcopy(current_set)
+                            set_with_most_improvement = subset
+                            improved = True
+                                    
+                    #Check for items that are not part of the set but have set attributes
+                    for i in range(1,len(items_not_part_of_set)+1):
+                        for subset_att_items in itertools.combinations(items_not_part_of_set, i):
+                            current_set = copy.deepcopy(saved_set)
+                            subset_can_be_equipped = True
+                            total_rings = copy.deepcopy(saved_set.rings)
+                            for item in subset_att_items:
+                                slot_attr = item.slot
+                                if slot_attr.lower() in locked_slots:
+                                    subset_can_be_equipped = False
+                                    break
+                                elif slot_attr == "Tool" and len(locked_tools) >= tool_slots:
+                                    subset_can_be_equipped = False
+                                    break
+                                if slot_attr != "Ring" and slot_attr != "Tool":
+                                    setattr(current_set, slot_attr.lower(), item)
+                                if slot_attr == "Ring":
+                                    total_rings.append(item)
+                                    total_rings.append(item)
+                            if not subset_can_be_equipped: continue
+                            for subset_rings in itertools.combinations(total_rings, 2):
+                                current_set.rings = list(subset_rings)
+                                items_considered = items_without_set_attr
+                                if len(items_considered) < count:
+                                    added_item_count = count - len(items_considered)
+                                    items_considered.extend(items_without_set_attr_without_adv[:added_item_count])
+                                for subset_set_items in itertools.combinations(items_considered, count):
+                                    subset_can_be_equipped = True
+                                    non_tools = [x for x in subset_set_items if x.slot != "Tool"]
+                                    tools = [x for x in subset_set_items if x.slot == "Tool"]
+                                    for item in non_tools:
+                                        slot_attr = item.slot
+                                        if slot_attr.lower() in locked_slots:
+                                            subset_can_be_equipped = False
+                                            break
+                                        if slot_attr != "Ring" and slot_attr != "Tool":
+                                            setattr(current_set, slot_attr.lower(), item)
+                                    if not subset_can_be_equipped: continue
+                                    if len(tools) > tool_slots - len(locked_tools): continue
+                                    current_tools = copy.deepcopy(current_set.tools)
+                                    count_of_non_replaced_tools = len(current_tools) - len(tools) - len(locked_tools)
+                                    for subset_current_tools in itertools.combinations(current_tools, count_of_non_replaced_tools):
+                                        tools_used = list(subset_current_tools) + tools + locked_tools
+                                        if self._is_valid_tool_set(tools_used):
+                                            current_set.tools = list(tools_used)
+                                            score = calculate_score_for_set(current_set)
+                                            if score > max_score:
+                                                max_score = score
+                                                best_set = copy.deepcopy(current_set)
+                                                set_with_most_improvement = subset_att_items + subset_set_items
+                                                improved = True
+                                    current_set.tools = current_tools
+                                            
+
+                
+                #Lock slots of the best set to ensure that set items are not replaced
+                if improved:
+                    for item in set_with_most_improvement:
+                        slot_attr = item.slot
+                        if slot_attr == "Ring":
+                            if slot_attr + "1" not in locked_slots:
+                                locked_slots.add(slot_attr + "1")
+                            elif slot_attr + "2" not in locked_slots:
+                                locked_slots.add(slot_attr + "1")
+                            locked_rings.append(item)
+                            continue
+                        if slot_attr == "Tool":
+                            i = 1
+                            while True:
+                                if slot_attr + str(i) not in locked_slots:
+                                    locked_slots.add(slot_attr + str(i))
+                                    break
+                                i += 1
+                            locked_tools.append(item)
+                            continue
+                        if slot_attr.lower() not in locked_slots:
+                            locked_slots.add(slot_attr.lower())
+                
+                    
+            
+            #Iterative consideration
             base_score = calculate_score_for_set(best_set)
             if pre_iter_score < base_score:
                 changed = True
@@ -147,7 +309,7 @@ class GearOptimizer:
         for item in self.all_items:
             item_skills = item.skill.split(',') if item.skill else []
 
-            if item.skill is not None and activity.skill not in item_skills: continue
+            if item.skill is not None and activity.skill not in item_skills and not item.is_part_of_set: continue
             if item.region and item.region != activity.region: continue
             if item.underwater_only and not activity.is_underwater: continue
             
@@ -167,6 +329,9 @@ class GearOptimizer:
             best_versions = {}
             for item in items:
                 key = item.clean_item_name or item.name
+                
+                if item.set_name != None:
+                    key += str(item.set_count) #Keeps all set items
                 
                 if slot == "Tool": temp_set.tools = [item]
                 elif slot == "Ring": temp_set.rings = [item]
@@ -192,3 +357,21 @@ class GearOptimizer:
                     if k in seen_keywords: return False
                     seen_keywords.add(k)
         return True
+    
+    def _check_for_set_conditions(self, check_item: Item, current_set: GearSet) -> bool:
+        set_count_goal = check_item.set_count
+        set_count_current = 0
+        for i in current_set.all_items:
+            if i.set_name == check_item.set_name and i.is_part_of_set:
+                set_count_current += 1
+        return bool(set_count_current >= set_count_goal)
+    
+    def get_all_sets(self) -> set[str]:
+        sets = set()
+        for item in self.all_items:
+            if item.set_name != None:
+                if item.set_name not in sets:
+                    sets.add(item.set_name)
+        return sets
+
+        
